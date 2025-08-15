@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Ağırlık Antrenman Takip Asistanı</title>
+<style>
+body { font-family: Arial, sans-serif; background:#f4f4f4; margin:0; padding:0; }
+.container { max-width: 900px; margin:20px auto; padding:10px; }
+h1 { text-align:center; color:#2a5d84; }
+.card { background:#fff; border-radius:8px; padding:16px; margin-bottom:24px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
+.card h2 { margin-top:0; color:#2a5d84; }
+form input[type="text"], form input[type="number"], form input[type="date"], form select {
+  padding:6px; margin:4px 0; width:100%; border:1px solid #ccc; border-radius:4px;
+}
+button { background:#2a5d84; color:#fff; border:none; padding:8px 12px; border-radius:4px; cursor:pointer; }
+button:disabled { background:#aaa; }
+table { width:100%; border-collapse:collapse; margin-top:12px; }
+table th, table td { border:1px solid #ccc; padding:6px; text-align:center; }
+form .row { display:flex; flex-wrap:wrap; gap:8px; }
+form .row > div { flex:1; min-width:140px; }
+#workoutRowsContainer .workout-row { border:1px solid #ddd; padding:8px; border-radius:4px; margin-bottom:8px; }
+#workoutHistory li { margin-bottom:6px; list-style:disc; margin-left:20px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Ağırlık Antrenman Asistanı</h1>
+
+  <div class="card" id="exercise-manager">
+    <h2>Egzersiz Yönetimi</h2>
+    <form id="exerciseForm">
+      <div class="row">
+        <div><input id="exerciseName" type="text" placeholder="Egzersiz adı" required></div>
+        <div><input id="exercisePR" type="number" step="0.5" placeholder="Kişisel rekor (kg)" required></div>
+        <div><button type="submit">Ekle / Güncelle</button></div>
+      </div>
+    </form>
+    <ul id="exerciseList"></ul>
+  </div>
+
+  <div class="card" id="schedule-card">
+    <h2>Haftalık Yüklenme Programı</h2>
+    <div class="row">
+      <div><select id="scheduleExerciseSelect"></select></div>
+      <div><button id="generateScheduleBtn">Program Oluştur</button></div>
+    </div>
+    <table id="scheduleTable"></table>
+  </div>
+
+  <div class="card" id="workout-card">
+    <h2>Antrenman Kaydı</h2>
+    <button id="addWorkoutRow">Yeni Egzersiz Ekle</button>
+    <form id="workoutForm">
+      <div id="workoutRowsContainer"></div>
+      <div class="row">
+        <div><input id="workoutDate" type="date" required></div>
+        <div><button type="submit">Antrenmanı Kaydet</button></div>
+      </div>
+    </form>
+    <ul id="workoutHistory"></ul>
+  </div>
+
+  <div class="card" id="nutrition-card">
+    <h2>Kalori ve Su Takibi</h2>
+    <div class="row">
+      <div>
+        <label>Günlük Kalori Hedefi:
+          <input id="calorieGoal" type="number" step="10" placeholder="kcal">
+        </label>
+      </div>
+      <div>
+        <label>Bugünkü Kalori:
+          <input id="calorieIntake" type="number" step="10" placeholder="kcal">
+        </label>
+      </div>
+      <div><button id="saveCalorie">Kaydet</button></div>
+    </div>
+    <p id="calorieMessage"></p>
+    <div class="row">
+      <div>
+        <label>Günlük Su Hedefi (ml):
+          <input id="waterGoal" type="number" step="50" placeholder="ml">
+        </label>
+      </div>
+      <div>
+        <label>Bugünkü Su (ml):
+          <input id="waterIntake" type="number" step="50" placeholder="ml">
+        </label>
+      </div>
+      <div><button id="saveWater">Kaydet</button></div>
+    </div>
+    <p id="waterMessage"></p>
+  </div>
+</div>
+
+<script>
+/* Verileri yerel depoda tutmak için anahtarlar */
+const EXERCISE_KEY = "bb_exercises";
+const WORKOUT_KEY = "bb_workouts";
+const NUTRITION_KEY = "bb_nutrition";
+
+function getExercises() {
+  return JSON.parse(localStorage.getItem(EXERCISE_KEY)) || {};
+}
+function saveExercises(ex) {
+  localStorage.setItem(EXERCISE_KEY, JSON.stringify(ex));
+}
+function getWorkouts() {
+  return JSON.parse(localStorage.getItem(WORKOUT_KEY)) || [];
+}
+function saveWorkouts(w) {
+  localStorage.setItem(WORKOUT_KEY, JSON.stringify(w));
+}
+function getNutrition() {
+  return JSON.parse(localStorage.getItem(NUTRITION_KEY)) || {
+    calorieGoal:0, calorieIntake:0, waterGoal:0, waterIntake:0
+  };
+}
+function saveNutrition(n) {
+  localStorage.setItem(NUTRITION_KEY, JSON.stringify(n));
+}
+
+/* Egzersiz ekleme/güncelleme */
+document.getElementById("exerciseForm").addEventListener("submit", function(e) {
+  e.preventDefault();
+  const name = document.getElementById("exerciseName").value.trim();
+  const pr = parseFloat(document.getElementById("exercisePR").value);
+  if (!name || isNaN(pr)) return;
+  const ex = getExercises();
+  ex[name] = pr;
+  saveExercises(ex);
+  document.getElementById("exerciseForm").reset();
+  loadExercises();
+  populateExerciseSelects();
+});
+
+/* Egzersiz listesini göster */
+function loadExercises() {
+  const ex = getExercises();
+  const listEl = document.getElementById("exerciseList");
+  listEl.innerHTML = '';
+  Object.keys(ex).forEach(name => {
+    const li = document.createElement("li");
+    li.textContent = name + " – PR: " + ex[name] + " kg";
+    listEl.appendChild(li);
+  });
+}
+
+/* Seçim kutularını doldur */
+function populateExerciseSelects() {
+  const ex = getExercises();
+  const select1 = document.getElementById("scheduleExerciseSelect");
+  const selects = document.querySelectorAll(".workout-exercise");
+  // ana seçim listesini temizle
+  select1.innerHTML = '<option value="" disabled selected>Egzersiz seçin</option>';
+  Object.keys(ex).forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name; opt.textContent = name;
+    select1.appendChild(opt);
+  });
+  // her workout satırı için de güncelle
+  selects.forEach(sel => {
+    const selected = sel.value;
+    sel.innerHTML = '<option value="" disabled selected>Egzersiz</option>';
+    Object.keys(ex).forEach(name => {
+      const op = document.createElement("option");
+      op.value = name; op.textContent = name;
+      if (selected === name) op.selected = true;
+      sel.appendChild(op);
+    });
+  });
+}
+
+/* Program oluşturma */
+document.getElementById("generateScheduleBtn").addEventListener("click", function() {
+  const exName = document.getElementById("scheduleExerciseSelect").value;
+  if (!exName) return;
+  const ex = getExercises();
+  const pr = ex[exName];
+  let weight = pr * 0.8;
+  const table = document.getElementById("scheduleTable");
+  table.innerHTML = '';
+  const header = table.insertRow();
+  header.innerHTML = "<th>Hafta</th><th>Önerilen Ağırlık (kg)</th>";
+  for (let i=1; i<=8; i++) {
+    if (weight > pr) weight = pr;
+    const row = table.insertRow();
+    row.insertCell().textContent = i + ". Hafta";
+    row.insertCell().textContent = Math.round(weight * 2) / 2;
+    weight *= 1.05;
+  }
+});
+
+/* Antrenman satırı ekleme */
+document.getElementById("addWorkoutRow").addEventListener("click", function() {
+  const container = document.getElementById("workoutRowsContainer");
+  if (container.children.length >= 12) return; // en fazla 12
+  const row = document.createElement("div");
+  row.className = "workout-row";
+  row.innerHTML = `
+    <div class="row">
+      <div><select class="workout-exercise" required></select></div>
+      <div><input type="number" step="0.5" class="workout-weight" placeholder="Ağırlık (kg)" required></div>
+      <div><input type="number" step="1" class="workout-sets" placeholder="Set" required></div>
+      <div><input type="number" step="1" class="workout-reps" placeholder="Tekrar" required></div>
+      <div><button type="button" class="removeRow" title="Satırı Sil">Sil</button></div>
+    </div>`;
+  container.appendChild(row);
+  populateExerciseSelects(); // egzersiz seçeneklerini güncelle
+  row.querySelector(".removeRow").onclick = () => {
+    row.remove();
+  };
+});
+
+/* Antrenmanı kaydet */
+document.getElementById("workoutForm").addEventListener("submit", function(e) {
+  e.preventDefault();
+  const date = document.getElementById("workoutDate").value;
+  if (!date) return;
+  const rows = document.querySelectorAll("#workoutRowsContainer .workout-row");
+  const workouts = getWorkouts();
+  rows.forEach(row => {
+    const ex = row.querySelector(".workout-exercise").value;
+    const wt = parseFloat(row.querySelector(".workout-weight").value);
+    const sets = parseInt(row.querySelector(".workout-sets").value);
+    const reps = parseInt(row.querySelector(".workout-reps").value);
+    if (ex && !isNaN(wt) && !isNaN(sets) && !isNaN(reps)) {
+      workouts.push({date, exercise:ex, weight:wt, sets, reps});
+    }
+  });
+  saveWorkouts(workouts);
+  document.getElementById("workoutForm").reset();
+  document.getElementById("workoutRowsContainer").innerHTML = '';
+  displayWorkoutHistory();
+});
+
+/* Geçmiş antrenmanları göster */
+function displayWorkoutHistory() {
+  const workouts = getWorkouts();
+  const ul = document.getElementById("workoutHistory");
+  ul.innerHTML = '';
+  workouts.forEach(w => {
+    const li = document.createElement("li");
+    li.textContent = `${w.date} – ${w.exercise}: ${w.weight} kg × ${w.sets} set × ${w.reps} tekrar`;
+    ul.appendChild(li);
+  });
+}
+
+/* Kalori ve su takibi */
+function updateNutritionDisplay() {
+  const n = getNutrition();
+  const calMsg = document.getElementById("calorieMessage");
+  if (n.calorieGoal > 0) {
+    const diff = n.calorieIntake - n.calorieGoal;
+    calMsg.textContent = diff >= 0 ? `Kalori hedefinizi ${diff} kcal aştınız.` :
+       `Kalori hedefinize ${-diff} kcal kaldı.`;
+  } else {
+    calMsg.textContent = '';
+  }
+  const waterMsg = document.getElementById("waterMessage");
+  if (n.waterGoal > 0) {
+    const diff2 = n.waterIntake - n.waterGoal;
+    waterMsg.textContent = diff2 >= 0 ? `Su hedefinizi ${diff2} ml aştınız.` :
+       `Su hedefinize ${-diff2} ml kaldı.`;
+  } else {
+    waterMsg.textContent = '';
+  }
+}
+document.getElementById("saveCalorie").addEventListener("click", function() {
+  const n = getNutrition();
+  n.calorieGoal = parseInt(document.getElementById("calorieGoal").value) || 0;
+  n.calorieIntake = parseInt(document.getElementById("calorieIntake").value) || 0;
+  saveNutrition(n);
+  updateNutritionDisplay();
+});
+document.getElementById("saveWater").addEventListener("click", function() {
+  const n = getNutrition();
+  n.waterGoal = parseInt(document.getElementById("waterGoal").value) || 0;
+  n.waterIntake = parseInt(document.getElementById("waterIntake").value) || 0;
+  saveNutrition(n);
+  updateNutritionDisplay();
+});
+
+/* Başlangıç */
+function init() {
+  // Varsayılan birkaç egzersiz ekle
+  if (!localStorage.getItem(EXERCISE_KEY)) {
+    saveExercises({
+      "Squat":100,
+      "Bench Press":70,
+      "Deadlift":120,
+      "Overhead Press":40,
+      "Barbell Row":60,
+      "Pull-Up":10,
+      "Dip":0,
+      "Biceps Curl":20,
+      "Triceps Extension":15,
+      "Leg Press":200
+    });
+  }
+  loadExercises();
+  populateExerciseSelects();
+  displayWorkoutHistory();
+  // bir boş satırla başla
+  document.getElementById("addWorkoutRow").click();
+  updateNutritionDisplay();
+}
+init();
+</script>
+</body>
+</html>
